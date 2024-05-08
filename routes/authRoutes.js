@@ -12,11 +12,11 @@ const {
   getToken,
 } = require("../controle/controleacces");
 
-// Paramétrage du serveur,
+// Paramétrage du serveur, pour l'instant en local
 router.use(
   cors({
     credentials: true,
-    origin: "https://onegame-sepia.vercel.app",
+    origin: "http://localhost:5173",
   })
 );
 

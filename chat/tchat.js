@@ -2,11 +2,10 @@ const socketIo = require("socket.io");
 const Player = require("../jeu/Player");
 const ManageGame = require("../jeu/ManageGame");
 function setupSocket(server) {
-  console.log(process.env.SERV_TCHAT);
   // Paramétrage socket.io pour le serveur hebergé en local
   const io = socketIo(server, {
     cors: {
-      origin: "https://onegame-sepia.vercel.app",
+      origin: "http://localhost:5173",
       methods: ["GET", "POST"],
     },
   });
@@ -42,6 +41,7 @@ function setupSocket(server) {
         maxPlayers,
         gamestarted: false,
         game: null, // Initialise le jeu sans joueurs pour l'instant
+        notOne: null,
       };
 
       rooms[roomId] = newRoom;
@@ -122,8 +122,12 @@ function setupSocket(server) {
       // rejoins la room
       socket.join(room.id);
       socket.emit("roomJoined");
+      console.log("Lewis \n", { owner: room.owner, players: room.players });
       // rajouter dans le coté client qd joeur rejoint en updantant la liste des joueurs
-      io.to(room.id).emit("playerJoined", socket.user.username);
+      io.to(room.id).emit("playerJoined", {
+        owner: room.owner,
+        players: room.players,
+      });
     });
 
     socket.on("startGame", ({ roomId }) => {
@@ -206,17 +210,12 @@ function setupSocket(server) {
       if (room.game) {
         const current = room.game.currentPlayer.name;
         room.game.draw();
-        console.log(room.game);
-        console.log("Jeu commence: Players :", room.game.players);
-        console.log(room.game.currentPlayer.name);
+        //console.log(room.game);
+        //console.log("Jeu commence: Players :", room.game.players);
+        //console.log(room.game.currentPlayer.name);
         const { hand } = room.game.players.filter(
           (player) => player.name === current
         )[0];
-        console.log(
-          "wewe",
-          room.game.players.filter((player) => player.name === current)
-        );
-        //const player = rooms[socket.id];
         // Logique pour faire piocher les cartes au joueur
         // Après avoir mis à jour la main du joueur, redistribuer ses cartes
         room.players.forEach((player) => {
@@ -241,7 +240,7 @@ function setupSocket(server) {
       }
     });
 
-    socket.on("playCard", ({ cardPlayed }) => {
+    socket.on("playCard", ({ cardPlayed, color }) => {
       // Identifier le joueur et la partie à partir des informations de la socket
       const player = playerDetails[socket.id];
       const room = rooms[playerDetails[socket.id].roomId];
@@ -273,41 +272,59 @@ function setupSocket(server) {
       }
 
       const playedCard = game.currentPlayer.hand[cardIndex];
-      console.log(
-        "Carte trouvée",
-        cardIndex,
-        game.currentPlayer,
-        game.currentPlayer.hand[cardIndex]
-      );
 
       // Vérifier si la carte peut être jouée
       if (!game.canPlayOn(playedCard)) {
         socket.emit("error", { message: "Mouvement invalide." });
         return;
       }
+      //console.log("carte jouée: ", playedCard);
       const current = game.currentPlayer.name;
-      game.play([playedCard]);
+      game.play([playedCard], color);
       const { hand } = room.game.players.filter(
         (player) => player.name === current
       )[0];
       const currentColor =
-        room.game.lastCard.color !== "allcolors" &&
-        room.game.lastCard.color !== "withoutcolor"
+        room.game.lastCard.color !== "allColors" &&
+        room.game.lastCard.color !== "withoutColor"
           ? room.game.lastCard.color
           : room.game.lastColor;
-
+      //console.log("couleur sélectionner: ",room.game.lastColor, "-> couleur actuelle: ", currentColor);
       room.players.forEach((player) => {
-        io.to(player.id).emit("hasPlayed", {
-          hand: {
-            player: current,
-            newhand: hand.map((carte) => {
-              if (player.username === current) {
+        const toSend = {
+          player: current,
+          newhand: hand.map((carte) => {
+            if (player.username === current) {
+              return carte;
+            } else {
+              return null;
+            }
+          }),
+        };
+        if (
+          (room.game.lastCard.isPlus2Card() ||
+            room.game.lastCard.isPlus4Card()) &&
+          room.game.sumPinition === 0
+        ) {
+          const previousPlayerName =
+            room.game.currentPlayer.previousPlayer.name;
+          const previousPlayerHand =
+            room.game.currentPlayer.previousPlayer.hand;
+          toSend.previousPlayer = {
+            name: previousPlayerName,
+            hand: previousPlayerHand.map((carte) => {
+              if (
+                player.username === room.game.currentPlayer.previousPlayer.name
+              ) {
                 return carte;
               } else {
                 return null;
               }
             }),
-          },
+          };
+        }
+        io.to(player.id).emit("hasPlayed", {
+          hand: toSend,
           lastCard: room.game.lastCard,
           currentColor: currentColor,
           currentTurn: room.game.currentPlayer.name,
@@ -317,11 +334,91 @@ function setupSocket(server) {
               : null,
         });
       });
-      // Jouer la carte et l'appliquer à la logique du jeu
-      console.log(game.currentPlayer, game);
-      console.log(game.currentPlayer.nextPlayer);
+      if (room.game.end == true) {
+        console.log("endweewe");
+        endGame(player.roomId);
+      }
+    });
+
+    socket.on("One", (roomId) => {
+      const room = rooms[roomId];
+      if (room) {
+        room.notOne = room.game.currentPlayer.previousPlayer;
+        io.to(roomId).emit("OneOutPossible");
+      }
+      //console.log("merguez", room);
+      setTimeout(() => {
+        console.log("Delayed processing");
+        room.notOne = null;
+      }, 10000);
+    });
+
+    socket.on("OneOut", (roomId) => {
+      console.log("on m'appele l'ovni");
+      const room = rooms[roomId];
+      if (room && room.notOne) {
+        room.game.notOne(room.notOne);
+        io.to(roomId).emit("OneOutNotPossible");
+        console.log("a piocher", room.notOne);
+        room.players.forEach((player) => {
+          io.to(player.id).emit("updateOne", {
+            name: room.notOne.name,
+            hand: room.notOne.hand.map((carte) => {
+              if (player.username === room.notOne.name) {
+                return carte;
+              } else {
+                return null;
+              }
+            }),
+            playableCards:
+              player.username === room.game.currentPlayer.name
+                ? room.game.getPlayableCards()
+                : null,
+          });
+        });
+        room.notOne = null;
+        console.log("reset", room.notOne);
+      }
     });
   });
+
+  function endGame(roomId) {
+    const room = rooms[roomId];
+    if (!room) {
+      console.error(`La salle ${roomId} n'existe pas.`);
+      return;
+    }
+
+    // Identifiez le gagnant (premier à n'avoir plus de cartes) et les autres joueurs pour le classement
+    const rankings = room.players
+      .map((playerId) => {
+        const player = playerDetails[playerId.id];
+        return {
+          username: player.player.name,
+          cardCount: player.player.hand.length,
+        };
+      })
+      .sort((a, b) => a.cardCount - b.cardCount);
+
+    const winner = rankings.find((player) => player.cardCount === 0);
+    const results = {
+      winner: winner ? winner.username : "Pas de gagnant",
+      rankings,
+    };
+
+    // Envoie les résultats à tous les joueurs dans la salle
+    io.to(roomId).emit("gameResults", results);
+    console.log(
+      `Classements envoyés pour la salle ${roomId}. Gagnant: ${results.winner}`
+    );
+
+    room.players.forEach((playerId) => {
+      // Nettoie la salle et les détails des joueurs
+      delete playerDetails[playerId];
+    });
+    delete rooms[roomId];
+    console.log(`Salle ${roomId} supprimée après avoir affiché les résultats.`);
+  }
 }
 
 module.exports = { setupSocket };

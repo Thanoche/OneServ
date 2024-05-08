@@ -14,6 +14,7 @@ module.exports = class UnoDeck {
      */
     constructor() {
         this.cards = this.generateCards();
+        console.log(this.cards)
         this.shuffle();
     }
 
@@ -23,7 +24,9 @@ module.exports = class UnoDeck {
      */
     generateCards() {
         const cards = [];
+        //const colors = ['bleu', 'violet'];
         const colors = ['bleu', 'violet', 'rose', 'vert'];
+        //const values = ['0', '1', '2', '3', '4'];
         const values = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+2', '+4', 'reverse', 'skip', 'changeColor'];
 
         colors.forEach((color) => {
@@ -82,7 +85,7 @@ module.exports = class UnoDeck {
      * @param {Array} players - An array of Player instances to whom the cards will be dealt.
      * @param {number} numCards - The number of cards to deal to each player.
     */
-    dealCards(players, numCards) {
+    dealCards(players, numCards, lastCard) {
         // Loop through the number of cards to be dealt
         for (let i = 0; i < numCards; i++) {
             // Iterate through each player
@@ -95,16 +98,17 @@ module.exports = class UnoDeck {
                     player.addToHand(card);
                 } else {
                     let index;
-                    this.generateCards();
+                    this.cards = this.generateCards();
                     this.shuffle();
-                    if(ManageGame.lastCard.isChangeColorCard) {
+                    if(lastCard.isChangeColorCard()) {
                         index = this.cards.findIndex(card => card.isChangeColorCard());
                     } else {
-                        index = this.cards.findIndex(card => card.color === ManageGame.lastCard.color && card.value === ManageGame.lastCard.value);
+                        index = this.cards.findIndex(card => card.color === lastCard.color && card.value === lastCard.value);
                     }
                     if (index !== -1) {
                         this.cards.splice(index, 1);
                     }
+
                     card = this.DrawCard();
                     player.addToHand(card);
                 }
