@@ -17,7 +17,7 @@ console.log(process.env.SERVER_CLIENT)
 router.use(
   cors({
     credentials: true,
-    origin: process.env.SERVER_CLIENT,
+    origin: [process.env.SERVER_CLIENT, "https://onegame-sepia.vercel.app/"],
   })
 );
 
