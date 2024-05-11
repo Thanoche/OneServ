@@ -5,7 +5,7 @@ function setupSocket(server) {
   // Paramétrage socket.io pour le serveur hebergé en local
   const io = socketIo(server, {
     cors: {
-      origin: process.env.SERVER_CLIENT,
+      origin: process.env.SERV_TCHAT,
       methods: ["GET", "POST"],
     },
   });
@@ -41,7 +41,6 @@ function setupSocket(server) {
         maxPlayers,
         gamestarted: false,
         game: null, // Initialise le jeu sans joueurs pour l'instant
-        notOne: null,
       };
 
       rooms[roomId] = newRoom;
@@ -85,7 +84,10 @@ function setupSocket(server) {
             delete rooms[roomId];
           } else {
             console.log("roommmmm : ", details);
-            io.to(roomId).emit("playerDisconnected", details.player.name);
+            io.to(roomId).emit("playerDisconnected", {
+              owner: room.owner,
+              players: room.players,
+            });
           }
         }
         delete playerDetails[socket.id];
@@ -122,7 +124,6 @@ function setupSocket(server) {
       // rejoins la room
       socket.join(room.id);
       socket.emit("roomJoined");
-      console.log("Lewis \n", { owner: room.owner, players: room.players });
       // rajouter dans le coté client qd joeur rejoint en updantant la liste des joueurs
       io.to(room.id).emit("playerJoined", {
         owner: room.owner,
@@ -154,11 +155,6 @@ function setupSocket(server) {
       room.game = game;
       game.GameStart();
 
-      // console.log("Jeu commence: ", rooms);
-      // console.log("Jeu commence: Players :", room.players);
-      // console.log("Jeu commence: Game :", room.game);
-      // console.log("Jeu commence: Players :", room.game.players);
-      // console.log("Jeu commence: Deck :", room.game.UnoDeck);
       io.to(room.id).emit("gameStarted");
     });
 
@@ -210,14 +206,9 @@ function setupSocket(server) {
       if (room.game) {
         const current = room.game.currentPlayer.name;
         room.game.draw();
-        //console.log(room.game);
-        //console.log("Jeu commence: Players :", room.game.players);
-        //console.log(room.game.currentPlayer.name);
         const { hand } = room.game.players.filter(
           (player) => player.name === current
         )[0];
-        // Logique pour faire piocher les cartes au joueur
-        // Après avoir mis à jour la main du joueur, redistribuer ses cartes
         room.players.forEach((player) => {
           io.to(player.id).emit("updateDraw", {
             hand: {
@@ -289,7 +280,6 @@ function setupSocket(server) {
         room.game.lastCard.color !== "withoutColor"
           ? room.game.lastCard.color
           : room.game.lastColor;
-      //console.log("couleur sélectionner: ",room.game.lastColor, "-> couleur actuelle: ", currentColor);
       room.players.forEach((player) => {
         const toSend = {
           player: current,
@@ -303,8 +293,7 @@ function setupSocket(server) {
         };
         if (
           (room.game.lastCard.isPlus2Card() ||
-            room.game.lastCard.isPlus4Card()) &&
-          room.game.sumPinition === 0
+          room.game.lastCard.isPlus4Card()) && room.game.sumPinition === 0
         ) {
           const previousPlayerName =
             room.game.currentPlayer.previousPlayer.name;
@@ -313,9 +302,7 @@ function setupSocket(server) {
           toSend.previousPlayer = {
             name: previousPlayerName,
             hand: previousPlayerHand.map((carte) => {
-              if (
-                player.username === room.game.currentPlayer.previousPlayer.name
-              ) {
+              if (player.username === room.game.currentPlayer.previousPlayer.name) {
                 return carte;
               } else {
                 return null;
@@ -339,47 +326,6 @@ function setupSocket(server) {
         endGame(player.roomId);
       }
     });
-
-    socket.on("One", (roomId) => {
-      const room = rooms[roomId];
-      if (room) {
-        room.notOne = room.game.currentPlayer.previousPlayer;
-        io.to(roomId).emit("OneOutPossible");
-      }
-      //console.log("merguez", room);
-      setTimeout(() => {
-        console.log("Delayed processing");
-        room.notOne = null;
-      }, 10000);
-    });
-
-    socket.on("OneOut", (roomId) => {
-      console.log("on m'appele l'ovni");
-      const room = rooms[roomId];
-      if (room && room.notOne) {
-        room.game.notOne(room.notOne);
-        io.to(roomId).emit("OneOutNotPossible");
-        console.log("a piocher", room.notOne);
-        room.players.forEach((player) => {
-          io.to(player.id).emit("updateOne", {
-            name: room.notOne.name,
-            hand: room.notOne.hand.map((carte) => {
-              if (player.username === room.notOne.name) {
-                return carte;
-              } else {
-                return null;
-              }
-            }),
-            playableCards:
-              player.username === room.game.currentPlayer.name
-                ? room.game.getPlayableCards()
-                : null,
-          });
-        });
-        room.notOne = null;
-        console.log("reset", room.notOne);
-      }
-    });
   });
 
   function endGame(roomId) {
@@ -388,32 +334,27 @@ function setupSocket(server) {
       console.error(`La salle ${roomId} n'existe pas.`);
       return;
     }
-
+  
     // Identifiez le gagnant (premier à n'avoir plus de cartes) et les autres joueurs pour le classement
-    const rankings = room.players
-      .map((playerId) => {
-        const player = playerDetails[playerId.id];
-        return {
-          username: player.player.name,
-          cardCount: player.player.hand.length,
-        };
-      })
-      .sort((a, b) => a.cardCount - b.cardCount);
-
-    const winner = rankings.find((player) => player.cardCount === 0);
+    const rankings = room.players.map(playerId => {
+      const player = playerDetails[playerId.id];
+      return {
+        username: player.player.name,
+        cardCount: player.player.hand.length
+      };
+    }).sort((a, b) => a.cardCount - b.cardCount);
+    
+    const winner = rankings.find(player => player.cardCount === 0);
     const results = {
       winner: winner ? winner.username : "Pas de gagnant",
-      rankings,
+      rankings
     };
-
+  
     // Envoie les résultats à tous les joueurs dans la salle
-    io.to(roomId).emit("gameResults", results);
-    console.log(
-      `Classements envoyés pour la salle ${roomId}. Gagnant: ${results.winner}`
-    );
-
-    room.players.forEach((playerId) => {
-      // Nettoie la salle et les détails des joueurs
+    io.to(roomId).emit('gameResults', results);
+    console.log(`Classements envoyés pour la salle ${roomId}. Gagnant: ${results.winner}`);
+    
+    room.players.forEach(playerId => {// Nettoie la salle et les détails des joueurs 
       delete playerDetails[playerId];
     });
     delete rooms[roomId];

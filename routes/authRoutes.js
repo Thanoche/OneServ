@@ -12,7 +12,7 @@ const {
   getToken,
 } = require("../controle/controleacces");
 
-// Paramétrage du serveur, pour l'instant en local
+// Paramétrage du serveur,
 router.use(
   cors({
     credentials: true,
@@ -25,7 +25,7 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 router.get("/profile", getProfile);
 router.post("/disconnect", (req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", { secure: true, httpOnly: true, sameSite: 'None' });;
   return res.json(null);
 });
 router.post('/forgotpassword', forgotPassword);

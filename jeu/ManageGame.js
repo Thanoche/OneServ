@@ -133,18 +133,31 @@ module.exports = class ManageGame {
         (this.lastCard.isPlus4Card() &&
           card.color === this.lastColor &&
           this.sumPinition == 0) ||
-        (this.lastCard.isChangeColorCard() && card.color === this.lastColor) 
-        // ||
-        // (this.lastCard.isPlus4Card() &&
-        //   card.isPlus2Card() &&
-        //   this.sumPinition !== 0)
+        (this.lastCard.isChangeColorCard() && card.color === this.lastColor) ||
+        (this.lastCard.isPlus4Card() &&
+          card.isPlus2Card() &&
+          card.color == this.lastColor &&
+          this.sumPinition !== 0)
       );
     } else {
+      console.log(
+        "et we card :",
+        card.color,
+        card.value,
+        "this.lastCard :",
+        this.lastCard.color,
+        this.lastCard.value,
+        "punition :",
+        this.sumPinition
+      );
       return (
         ((card.color == this.lastCard.color && this.sumPinition == 0) ||
+          (this.lastCard.isChangeColorCard() && card.color == this.lastColor) ||
+          (this.lastCard.isPlus4Card() &&
+            card.color == this.lastColor &&
+            this.sumPinition == 0) ||
           card.value === this.lastCard.value ||
-          (card.isChangeColorCard() && this.sumPinition == 0) ||
-          card.color === this.lastColor) &&
+          (card.isChangeColorCard() && this.sumPinition == 0)) &&
         !card.isPlus4Card() &&
         !card.isPlus2Card()
       );
@@ -389,8 +402,8 @@ module.exports = class ManageGame {
         this.sumPinition,
         this.lastCard
       );
-      this.sumPinition = 0;
       this.moveToNextPlayer();
+      this.sumPinition = 0;
     }
   }
 

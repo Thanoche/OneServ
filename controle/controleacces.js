@@ -87,17 +87,13 @@ const loginUser = async (req, res) => {
         process.env.JWT_SECRET,
         {},
         (err, token) => {
-          if (err) {
-            throw err;
-          }
-          res
-            .cookie("token", token, {
-              httpOnly: true,
-              sameSite: "None",
-              secure: true,
-            })
-            .json({ user });
-        }
+          if (err) throw err;
+          res.cookie("token", token,  {
+            httpOnly: true,
+            sameSite: "None",
+            secure: true,
+          }).json({ user });
+        } 
       );
     } else {
       return res.json({
@@ -134,7 +130,7 @@ const generateresetlink = (email) => {
   const token = jwt.sign({ email: email }, process.env.JWT_SECRET, {
     expiresIn: "10m",
   });
-  return `http://localhost:5173/reset_password/${token}`;
+  return `https://onegame.vercel.app/reset_password/${token}`;
 };
 
 // forgotPassword Endpoint
@@ -220,9 +216,8 @@ const resetPassword = async (req, res) => {
 
 const getToken = (req, res) => {
   const { token } = req.cookies;
-  console.log(token);
-  return res.json({ token: token });
-};
+  return res.json({token : token})
+}
 
 // Export
 module.exports = {
