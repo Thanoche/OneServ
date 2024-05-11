@@ -28,6 +28,7 @@ app.use("/", require("./routes/authRoutes"));
 
 // Choix du part et affichage
 const port = 8000;
-server.listen(port, () => console.log(`Server is running on port ${port}`));
+
+server.listen(process.env.PORT || 8000, () => console.log(`Server is running on port ${port}`));
 
 setupSocket(server);
