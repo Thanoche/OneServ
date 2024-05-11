@@ -5,7 +5,6 @@ const dotenv = require("dotenv").config();
 const { mongoose } = require("mongoose");
 const cookieParser = require("cookie-parser");
 const http = require("http");
-const path = require('path');
 const { setupSocket } = require("./chat/tchat");
 
 // Créer l'instance de l'application
@@ -28,6 +27,6 @@ app.use("/", require("./routes/authRoutes"));
 
 // Choix du part et affichage
 const port = 8000;
-server.listen(port, () => console.log(`Server is running on port ${port}`));
+server.listen(process.env.PORT || 8000, () => console.log(`Server is running on port ${port}`));
 
 setupSocket(server);
