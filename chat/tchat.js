@@ -5,7 +5,7 @@ function setupSocket(server) {
   // Paramétrage socket.io pour le serveur hebergé en local
   const io = socketIo(server, {
     cors: {
-      origin: process.env.SERV_TCHAT,
+      origin: process.env.SERVER_CLIENT,
       methods: ["GET", "POST"],
     },
   });
@@ -41,6 +41,7 @@ function setupSocket(server) {
         maxPlayers,
         gamestarted: false,
         game: null, // Initialise le jeu sans joueurs pour l'instant
+        notOne: null,
       };
 
       rooms[roomId] = newRoom;
@@ -84,10 +85,7 @@ function setupSocket(server) {
             delete rooms[roomId];
           } else {
             console.log("roommmmm : ", details);
-            io.to(roomId).emit("playerDisconnected", {
-              owner: room.owner,
-              players: room.players,
-            });
+            io.to(roomId).emit("playerDisconnected", details.player.name);
           }
         }
         delete playerDetails[socket.id];
@@ -155,6 +153,11 @@ function setupSocket(server) {
       room.game = game;
       game.GameStart();
 
+      // console.log("Jeu commence: ", rooms);
+      // console.log("Jeu commence: Players :", room.players);
+      // console.log("Jeu commence: Game :", room.game);
+      // console.log("Jeu commence: Players :", room.game.players);
+      // console.log("Jeu commence: Deck :", room.game.UnoDeck);
       io.to(room.id).emit("gameStarted");
     });
 
@@ -206,9 +209,14 @@ function setupSocket(server) {
       if (room.game) {
         const current = room.game.currentPlayer.name;
         room.game.draw();
+        //console.log(room.game);
+        //console.log("Jeu commence: Players :", room.game.players);
+        //console.log(room.game.currentPlayer.name);
         const { hand } = room.game.players.filter(
           (player) => player.name === current
         )[0];
+        // Logique pour faire piocher les cartes au joueur
+        // Après avoir mis à jour la main du joueur, redistribuer ses cartes
         room.players.forEach((player) => {
           io.to(player.id).emit("updateDraw", {
             hand: {
@@ -280,6 +288,7 @@ function setupSocket(server) {
         room.game.lastCard.color !== "withoutColor"
           ? room.game.lastCard.color
           : room.game.lastColor;
+      //console.log("couleur sélectionner: ",room.game.lastColor, "-> couleur actuelle: ", currentColor);
       room.players.forEach((player) => {
         const toSend = {
           player: current,
@@ -324,6 +333,46 @@ function setupSocket(server) {
       if (room.game.end == true) {
         console.log("endweewe");
         endGame(player.roomId);
+      }
+    });
+
+    socket.on("One", (roomId) => {
+      const room = rooms[roomId];
+      if (room) {
+        room.notOne = room.game.currentPlayer.previousPlayer;
+        io.to(roomId).emit("OneOutPossible");
+      }
+      //console.log("merguez", room);
+      setTimeout(() => {
+        console.log("Delayed processing");
+        room.notOne = null;
+      }, 10000);
+    });
+
+    socket.on("OneOut", (roomId) => {
+      const room = rooms[roomId];
+      if (room && room.notOne) {
+        room.game.notOne(room.notOne);
+        io.to(roomId).emit("OneOutNotPossible");
+        console.log("a piocher", room.notOne);
+        room.players.forEach((player) => {
+          io.to(player.id).emit("updateOne", {
+            name: room.notOne.name,
+            hand: room.notOne.hand.map((carte) => {
+              if (player.username === room.notOne.name) {
+                return carte;
+              } else {
+                return null;
+              }
+            }),
+            playableCards:
+              player.username === room.game.currentPlayer.name
+                ? room.game.getPlayableCards()
+                : null,
+          });
+        });
+        room.notOne = null;
+        console.log("reset", room.notOne);
       }
     });
   });
