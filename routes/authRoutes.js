@@ -12,6 +12,7 @@ const {
   getToken,
 } = require("../controle/controleacces");
 
+console.log(process.env.SERV_TCHAT)
 // Paramétrage du serveur,
 router.use(
   cors({
