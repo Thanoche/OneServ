@@ -12,12 +12,12 @@ const {
   getToken,
 } = require("../controle/controleacces");
 
-console.log(process.env.SERV_TCHAT)
+console.log(process.env.SERVER_CLIENT)
 // Paramétrage du serveur,
 router.use(
   cors({
     credentials: true,
-    origin: process.env.SERV_TCHAT,
+    origin: process.env.SERVER_CLIENT,
   })
 );
 
