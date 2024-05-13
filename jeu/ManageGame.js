@@ -1,5 +1,6 @@
 const Card = require("./Card");
 const Player = require("./Player");
+const Bot = require("./Bot");
 const UnoDeck = require("./UnoDeck");
 const readline = require("readline");
 
@@ -140,16 +141,6 @@ module.exports = class ManageGame {
           this.sumPinition !== 0)
       );
     } else {
-      console.log(
-        "et we card :",
-        card.color,
-        card.value,
-        "this.lastCard :",
-        this.lastCard.color,
-        this.lastCard.value,
-        "punition :",
-        this.sumPinition
-      );
       return (
         ((card.color == this.lastCard.color && this.sumPinition == 0) ||
           (this.lastCard.isChangeColorCard() && card.color == this.lastColor) ||
@@ -171,20 +162,33 @@ module.exports = class ManageGame {
    */
   async play(cards, color) {
     // Retrieve the array of playable cards for the current player
-    let playableCards = this.getPlayableCards();
-
+    console.log(cards, "175");
     // Flag to track if a card with the same value has been played
     let playedSameValue = false;
 
     // Loop through each card the player is attempting to play
     for (let card of cards) {
+      let playableCards = this.getPlayableCards();
       // Check if the card is playable
+      console.log(card, "182");
       let isPlayableCard = playableCards.some(
         (playableCard) =>
           playableCard.color === card.color && playableCard.value === card.value
       );
+      console.log(playableCards, "carte jouable");
       if (isPlayableCard) {
         // Check conditions for playing a card with the same color
+        console.log(
+          "189",
+          "samevalue",
+          playedSameValue,
+          "card:",
+          card,
+          " lastCard:",
+          this.lastCard,
+          "color:",
+          this.lastColor
+        );
         if (
           !playedSameValue &&
           ((card.getColor() == this.lastCard.color &&
@@ -198,20 +202,22 @@ module.exports = class ManageGame {
           // Play the card, update lastCard, and exit the loop
           this.currentPlayer.removeFromHand(card);
           this.lastCard = card;
-          break;
+          playedSameValue = true;
+          console.log(card, "203");
         } else {
           // Check conditions for playing special cards
           if (!playedSameValue && card.isChangeColorCard()) {
             this.currentPlayer.removeFromHand(card);
             this.lastCard = card;
             playedSameValue = true;
-            break;
+            console.log(card, "211");
           } else {
             if (!playedSameValue && card.isPlus4Card()) {
               this.currentPlayer.removeFromHand(card);
               this.sumPinition += 4;
               this.lastCard = card;
               playedSameValue = true;
+              console.log(card, "219");
             } else {
               // Check conditions for playing a card with the same value
               if (
@@ -226,6 +232,7 @@ module.exports = class ManageGame {
                 this.currentPlayer.removeFromHand(card);
                 this.lastCard = card;
                 playedSameValue = true;
+                console.log(card, "234");
               }
             }
           }
@@ -578,17 +585,104 @@ module.exports = class ManageGame {
     return this.currentPlayer.hand.length === 0;
   }
 
-  generateUniqueLink() {
-    const characters =
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    const linkLength = 10; // Longueur du lien
-    let uniqueLink = "";
+  isBot() {
+    return this.currentPlayer instanceof Bot;
+  }
 
-    for (let i = 0; i < linkLength; i++) {
-      const randomIndex = Math.floor(Math.random() * characters.length);
-      uniqueLink += characters[randomIndex];
+  analyzeCards(cards) {
+    // Analyser les cartes pour déterminer les actions possibles
+    const cardAnalysis = {
+      hasReverseCard: false,
+      hasSkipCard: false,
+      hasPlus4card: false,
+      hasPlus2card: false,
+      hasChangeColorCard: false,
+      hasSameValue: true,
+    };
+
+    // Analyser chaque carte
+    for (const card of cards) {
+      if (!cardAnalysis.hasReverseCard && card.isReverseCard()) {
+        cardAnalysis.hasReverseCard = true;
+      }
+      if (!cardAnalysis.hasSkipCard && card.isSkipCard()) {
+        cardAnalysis.hasSkipCard = true;
+      }
+      if (!cardAnalysis.hasPlus4card && card.isPlus4Card()) {
+        cardAnalysis.hasPlus4card = true;
+      }
+      if (!cardAnalysis.hasPlus2card && card.isPlus2Card()) {
+        cardAnalysis.hasPlus2card = true;
+      }
+      if (!cardAnalysis.hasChangeColorCard && card.isChangeColorCard()) {
+        cardAnalysis.hasChangeColorCard = true;
+      }
+      if (card.getValue() !== cards[0].getValue()) {
+        cardAnalysis.hasSameValue = false;
+      }
     }
 
-    return uniqueLink;
+    return cardAnalysis;
+  }
+
+  async decideAndPlay(playableCards, cardAnalysis, botColor) {
+    if (playableCards.length === 0) {
+      this.draw();
+    } else {
+      if (
+        this.currentPlayer.getPlayerHand().length === playableCards.length &&
+        cardAnalysis.hasSameValue
+      ) {
+        await this.play(playableCards, botColor);
+      } else {
+        let cardsToPlay = [];
+        if (cardAnalysis.hasPlus4card) {
+          cardsToPlay = playableCards.filter((card) => card.isPlus4Card());
+          await this.play(cardsToPlay, botColor);
+        } else if (cardAnalysis.hasPlus2card) {
+          cardsToPlay = playableCards.filter((card) => card.isPlus2Card());
+          await this.play(cardsToPlay, botColor);
+        } else {
+          cardsToPlay = this.findBestNumberCardsToPlay(playableCards);
+          await this.play(cardsToPlay, botColor);
+        }
+      }
+    }
+  }
+
+  identifyCardGroups(playableCards) {
+    let groups = [];
+    // Tri des cartes jouables par valeur
+    playableCards.sort((a, b) => a.getValue() - b.getValue());
+    // Identifier les différents groupes de cartes avec la même valeur
+    for (let i = 0; i < playableCards.length; i++) {
+      if (
+        i === 0 ||
+        playableCards[i].getValue() !== playableCards[i - 1].getValue()
+      ) {
+        let group = [playableCards[i]];
+        for (let j = i + 1; j < playableCards.length; j++) {
+          if (playableCards[j].getValue() === group[0].getValue()) {
+            group.push(playableCards[j]);
+          } else {
+            break;
+          }
+        }
+        // Ajouter le groupe identifié à la liste des groupes
+        groups.push(group);
+      }
+    }
+    return groups;
+  }
+
+  findBestNumberCardsToPlay(playableCards) {
+    let groups = this.identifyCardGroups(playableCards);
+    let bestGroup = groups[0];
+    for (let group of groups) {
+      if (group.length > bestGroup.length && !group[0].isSpecialCard()) {
+        bestGroup = group;
+      }
+    }
+    return bestGroup;
   }
 };

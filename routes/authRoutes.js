@@ -12,7 +12,6 @@ const {
   getToken,
 } = require("../controle/controleacces");
 
-console.log(process.env.SERVER_CLIENT)
 // Paramétrage du serveur,
 router.use(
   cors({

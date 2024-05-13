@@ -1,5 +1,6 @@
 const socketIo = require("socket.io");
 const Player = require("../jeu/Player");
+const Bot = require("../jeu/Bot");
 const ManageGame = require("../jeu/ManageGame");
 function setupSocket(server) {
   // Paramétrage socket.io pour le serveur hebergé en local
@@ -23,7 +24,6 @@ function setupSocket(server) {
     // Lorsque le serveur écoute qu'un joueur s'est connecté et qu'il est authentifié (en envoyant sur username),
     // va modifier les informations du joueurs pour retenir son username. Et envoyer que ce dernier est bien connecté.
     socket.on("authenticate", (username) => {
-      console.log(username);
       if (username) {
         socket.user = { username: username, id: socket.id };
         console.log(socket.id, socket.user);
@@ -33,7 +33,7 @@ function setupSocket(server) {
     });
 
     // Permet à un joueur de créer une nouvelle room, en choisiant le nombre de joueurs maximum.
-    socket.on("createRoom", ({ maxPlayers }) => {
+    socket.on("createRoom", ({ maxPlayers, bot }) => {
       const newRoom = {
         id: roomId,
         owner: socket.user,
@@ -41,6 +41,7 @@ function setupSocket(server) {
         maxPlayers,
         gamestarted: false,
         game: null, // Initialise le jeu sans joueurs pour l'instant
+        bot: bot,
       };
 
       rooms[roomId] = newRoom;
@@ -62,9 +63,6 @@ function setupSocket(server) {
 
     // Permet à un joueur d'envoyer un message au sein de sa room.
     socket.on("message", (newMsg) => {
-      console.log(
-        `L'ancien ${newMsg.player} debite dans la room ${newMsg.room}: ${newMsg.message}`
-      );
       io.to(newMsg.room).emit("message", newMsg);
     });
 
@@ -83,7 +81,6 @@ function setupSocket(server) {
             // Supprime la room si elle est vide
             delete rooms[roomId];
           } else {
-            console.log("roommmmm : ", details);
             io.to(roomId).emit("playerDisconnected", {
               owner: room.owner,
               players: room.players,
@@ -142,13 +139,24 @@ function setupSocket(server) {
       }
 
       // Vérifie si le nombre de joueurs est suffisant
-      if (room.players.length < room.maxPlayers) {
-        socket.emit("error", "Pas assez de joueurs");
-        return;
+      if (room.bot === false) {
+        if (room.players.length < room.maxPlayers) {
+          socket.emit("error", "Pas assez de joueurs");
+          return;
+        }
+      } else {
+        while (room.players.length < room.maxPlayers) {
+          const botPlayer = new Bot();
+          room.players.push({ username: botPlayer.name, id: "bot" + botPlayer.id });
+          playerDetails["bot"+botPlayer.id] = { roomId: roomId, player: botPlayer };
+          console.log("Room players ", room.players)
+          console.log("Room playersdetail ", playerDetails)
+        }
       }
 
       // Initialiser le jeu
       room.gamestarted = true;
+      console.log("Room players ", room.players);
       const game = new ManageGame(
         room.players.map(({ id }) => playerDetails[id].player)
       );
@@ -189,7 +197,7 @@ function setupSocket(server) {
           socket.user.username === currentTurn
             ? room.game.getPlayableCards()
             : null;
-        console.log(playableCards);
+        console.log("Cartes jouables 203: ",playableCards);
         socket.emit("SendInfo", {
           players: start,
           lastCard: room.game.lastCard,
@@ -229,6 +237,9 @@ function setupSocket(server) {
           });
         });
       }
+      if (room.game.isBot()) {
+        botPlay(room);
+      }
     });
 
     socket.on("playCard", ({ cardPlayed, color }) => {
@@ -252,78 +263,59 @@ function setupSocket(server) {
         return;
       }
 
-      // Trouver la carte dans la main du joueur
-      const cardIndex = game.currentPlayer.hand.findIndex(
-        (card) =>
-          card.color === cardPlayed.color && card.value === cardPlayed.value
-      );
-      if (cardIndex === -1) {
-        socket.emit("error", { message: "Carte non trouvée dans votre main." });
-        return;
+      const playedCard = [];
+      for (const cardIndex of cardPlayed) {
+        playedCard.push(game.currentPlayer.hand[cardIndex]);
       }
+      console.log("played Card: ",playedCard);
 
-      const playedCard = game.currentPlayer.hand[cardIndex];
-
-      // Vérifier si la carte peut être jouée
-      if (!game.canPlayOn(playedCard)) {
-        socket.emit("error", { message: "Mouvement invalide." });
-        return;
-      }
-      //console.log("carte jouée: ", playedCard);
       const current = game.currentPlayer.name;
-      game.play([playedCard], color);
-      const { hand } = room.game.players.filter(
-        (player) => player.name === current
-      )[0];
-      const currentColor =
-        room.game.lastCard.color !== "allColors" &&
-        room.game.lastCard.color !== "withoutColor"
-          ? room.game.lastCard.color
-          : room.game.lastColor;
-      room.players.forEach((player) => {
-        const toSend = {
-          player: current,
-          newhand: hand.map((carte) => {
-            if (player.username === current) {
-              return carte;
-            } else {
-              return null;
-            }
-          }),
-        };
-        if (
-          (room.game.lastCard.isPlus2Card() ||
-          room.game.lastCard.isPlus4Card()) && room.game.sumPinition === 0
-        ) {
-          const previousPlayerName =
-            room.game.currentPlayer.previousPlayer.name;
-          const previousPlayerHand =
-            room.game.currentPlayer.previousPlayer.hand;
-          toSend.previousPlayer = {
-            name: previousPlayerName,
-            hand: previousPlayerHand.map((carte) => {
-              if (player.username === room.game.currentPlayer.previousPlayer.name) {
+      game.play(playedCard, color);
+
+      sendAfterPlay(room, current);
+      
+      if (room.game.isBot()) {
+        botPlay(room);
+      }
+
+      if (room.game.end === true) {
+        endGame(player.roomId);
+      }
+    });
+
+    socket.on("One", (roomId) => {
+      const room = rooms[roomId];
+      if (room) {
+        room.notOne = room.game.currentPlayer.previousPlayer;
+        io.to(roomId).emit("OneOutPossible");
+      }
+      setTimeout(() => {
+        room.notOne = null;
+      }, 3000);
+    });
+
+    socket.on("OneOut", (roomId) => {
+      const room = rooms[roomId];
+      if (room && room.notOne) {
+        room.game.notOne(room.notOne);
+        io.to(roomId).emit("OneOutNotPossible");
+        room.players.forEach((player) => {
+          io.to(player.id).emit("updateOne", {
+            name: room.notOne.name,
+            hand: room.notOne.hand.map((carte) => {
+              if (player.username === room.notOne.name) {
                 return carte;
               } else {
                 return null;
               }
             }),
-          };
-        }
-        io.to(player.id).emit("hasPlayed", {
-          hand: toSend,
-          lastCard: room.game.lastCard,
-          currentColor: currentColor,
-          currentTurn: room.game.currentPlayer.name,
-          playableCards:
-            player.username === room.game.currentPlayer.name
-              ? room.game.getPlayableCards()
-              : null,
+            playableCards:
+              player.username === room.game.currentPlayer.name
+                ? room.game.getPlayableCards()
+                : null,
+          });
         });
-      });
-      if (room.game.end == true) {
-        console.log("endweewe");
-        endGame(player.roomId);
+        room.notOne = null;
       }
     });
   });
@@ -334,32 +326,125 @@ function setupSocket(server) {
       console.error(`La salle ${roomId} n'existe pas.`);
       return;
     }
-  
+
     // Identifiez le gagnant (premier à n'avoir plus de cartes) et les autres joueurs pour le classement
-    const rankings = room.players.map(playerId => {
-      const player = playerDetails[playerId.id];
-      return {
-        username: player.player.name,
-        cardCount: player.player.hand.length
-      };
-    }).sort((a, b) => a.cardCount - b.cardCount);
-    
-    const winner = rankings.find(player => player.cardCount === 0);
+    const rankings = room.players
+      .map((playerId) => {
+        const player = playerDetails[playerId.id];
+        return {
+          username: player.player.name,
+          cardCount: player.player.hand.length,
+        };
+      })
+      .sort((a, b) => a.cardCount - b.cardCount);
+
+    const winner = rankings.find((player) => player.cardCount === 0);
     const results = {
       winner: winner ? winner.username : "Pas de gagnant",
-      rankings
+      rankings,
     };
-  
+
     // Envoie les résultats à tous les joueurs dans la salle
-    io.to(roomId).emit('gameResults', results);
-    console.log(`Classements envoyés pour la salle ${roomId}. Gagnant: ${results.winner}`);
-    
-    room.players.forEach(playerId => {// Nettoie la salle et les détails des joueurs 
+    io.to(roomId).emit("gameResults", results);
+    console.log(
+      `Classements envoyés pour la salle ${roomId}. Gagnant: ${results.winner}`
+    );
+
+    room.players.forEach((playerId) => {
+      // Nettoie la salle et les détails des joueurs
       delete playerDetails[playerId];
     });
     delete rooms[roomId];
     console.log(`Salle ${roomId} supprimée après avoir affiché les résultats.`);
   }
+
+  const sendAfterPlay = (room, current) => {
+    const { hand } = room.game.players.filter(
+      (player) => player.name === current
+    )[0];
+    const currentColor =
+      room.game.lastCard.color !== "allColors" &&
+      room.game.lastCard.color !== "withoutColor"
+        ? room.game.lastCard.color
+        : room.game.lastColor;
+    room.players.forEach((player) => {
+      const toSend = {
+        player: current,
+        newhand: hand.map((carte) => {
+          if (player.username === current) {
+            return carte;
+          } else {
+            return null;
+          }
+        }),
+      };
+      if (
+        (room.game.lastCard.isPlus2Card() ||
+          room.game.lastCard.isPlus4Card()) &&
+        room.game.sumPinition === 0
+      ) {
+        const previousPlayerName = room.game.currentPlayer.previousPlayer.name;
+        const previousPlayerHand = room.game.currentPlayer.previousPlayer.hand;
+        toSend.previousPlayer = {
+          name: previousPlayerName,
+          hand: previousPlayerHand.map((carte) => {
+            if (
+              player.username === room.game.currentPlayer.previousPlayer.name
+            ) {
+              return carte;
+            } else {
+              return null;
+            }
+          }),
+        };
+      }
+      console.log ("send ",{
+        hand: toSend,
+        lastCard: room.game.lastCard,
+        currentColor: currentColor,
+        currentTurn: room.game.currentPlayer.name,
+        playableCards:
+          player.username === room.game.currentPlayer.name
+            ? room.game.getPlayableCards()
+            : null,
+      })
+      console.log("playernov",player.id)
+      io.to(player.id).emit("hasPlayed", {
+        hand: toSend,
+        lastCard: room.game.lastCard,
+        currentColor: currentColor,
+        currentTurn: room.game.currentPlayer.name,
+        playableCards:
+          player.username === room.game.currentPlayer.name
+            ? room.game.getPlayableCards()
+            : null,
+      });
+    });
+  };
+
+  const botPlay = (room) => {
+    if (room.game.isBot()) {
+      const botCards = room.game.getPlayableCards();
+      const analyze = room.game.analyzeCards(botCards);
+  
+      // Générer une couleur aléatoire
+      const couleurs = ["violet", "rose", "bleu", "vert"];
+      const indexAleatoire = Math.floor(Math.random() * couleurs.length);
+  
+      // Obtenir la couleur correspondante
+      const botColor = couleurs[indexAleatoire];
+      const currentBot = room.game.currentPlayer.name;
+      room.game.decideAndPlay(botCards, analyze, botColor);
+      setTimeout(() => {
+        sendAfterPlay(room, currentBot);
+        if (room.game.isBot()) {
+          botPlay(room);
+      }
+      }, 1000);
+      
+    }
+  }
 }
+
 
 module.exports = { setupSocket };
