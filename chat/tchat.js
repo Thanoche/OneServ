@@ -6,7 +6,7 @@ function setupSocket(server) {
   // Paramétrage socket.io pour le serveur hebergé en local
   const io = socketIo(server, {
     cors: {
-      origin: [process.env.SERVER_CLIENT, "https://onegame-sepia.vercel.app/"],
+      origin: [process.env.SERVER_CLIENT, "https://onegame-sepia.vercel.app"],
       methods: ["GET", "POST"],
     },
   });
