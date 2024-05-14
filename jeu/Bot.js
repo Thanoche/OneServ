@@ -1,7 +1,7 @@
 const Player = require("./Player");
 
 module.exports = class Bot extends Player {
-    static BotCount = 1;
+    static BotCount = 0;
 
     constructor() {
         super();

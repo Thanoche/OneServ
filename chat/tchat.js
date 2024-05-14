@@ -423,7 +423,7 @@ function setupSocket(server) {
   };
 
   const botPlay = (room) => {
-    if (room.game.isBot()) {
+    if (room.game.isBot() && room.game.end === false)  {
       const botCards = room.game.getPlayableCards();
       const analyze = room.game.analyzeCards(botCards);
   
@@ -437,10 +437,13 @@ function setupSocket(server) {
       room.game.decideAndPlay(botCards, analyze, botColor);
       setTimeout(() => {
         sendAfterPlay(room, currentBot);
-        if (room.game.isBot()) {
+        if (room.game.end === true) {
+          endGame(room.id);
+        }
+        else if (room.game.isBot()) {
           botPlay(room);
       }
-      }, 1000);
+      }, 2000);
       
     }
   }
